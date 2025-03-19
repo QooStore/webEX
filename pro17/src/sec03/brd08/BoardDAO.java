@@ -35,25 +35,47 @@ public class BoardDAO {
 		int pageNum=(Integer)pagingMap.get("pageNum");
 		try{
 		   conn = dataFactory.getConnection();
-		   String query ="SELECT * FROM ( "
-						+ "select ROWNUM  as recNum,"+"LVL,"
-							+"articleNO,"
-							+"parentNO,"
-							+"title,"
-							+"id,"
-							+"writeDate"
-				                  +" from (select LEVEL as LVL, "
-								+"articleNO,"
-								+"parentNO,"
-								+"title,"
-								+"id,"
-								 +"writeDate"
-							   +" from t_board" 
-							   +" START WITH  parentNO=0"
-							   +" CONNECT BY PRIOR articleNO = parentNO"
-							  +"  ORDER SIBLINGS BY articleNO DESC)"
-					+") "                        
-					+" where recNum between(?-1)*100+(?-1)*10+1 and (?-1)*100+?*10";                
+		   String query ="WITH RECURSIVE board_tree AS (\r\n" + 
+		   		"\r\n" + 
+		   		"    SELECT \r\n" + 
+		   		"        1 AS LVL, \r\n" + 
+		   		"        articleNO, \r\n" + 
+		   		"        parentNO, \r\n" + 
+		   		"        title, \r\n" + 
+		   		"        content, \r\n" + 
+		   		"        id, \r\n" + 
+		   		"        writedate\r\n" + 
+		   		"    FROM t_board\r\n" + 
+		   		"    WHERE parentNO = 0\r\n" + 
+		   		"    \r\n" + 
+		   		"    UNION ALL\r\n" + 
+		   		"    \r\n" + 
+		   		"    SELECT \r\n" + 
+		   		"        bt.LVL + 1, \r\n" + 
+		   		"        b.articleNO, \r\n" + 
+		   		"        b.parentNO, \r\n" + 
+		   		"        b.title, \r\n" + 
+		   		"        b.content, \r\n" + 
+		   		"        b.id, \r\n" + 
+		   		"        b.writedate\r\n" + 
+		   		"    FROM t_board b\r\n" + 
+		   		"    JOIN board_tree bt ON b.parentNO = bt.articleNO\r\n" + 
+		   		")\r\n" + 
+		   		"SELECT *\r\n" + 
+		   		"FROM (\r\n" + 
+		   		"    SELECT \r\n" + 
+		   		"        ROW_NUMBER() OVER (ORDER BY articleNO) AS recNum,  \r\n" + 
+		   		"        LVL, \r\n" + 
+		   		"        articleNO, \r\n" + 
+		   		"        parentNO, \r\n" + 
+		   		"        CONCAT(LPAD(' ', 4 * (LVL - 1), ' '), title) AS title,  \r\n" + 
+		   		"        content, \r\n" + 
+		   		"        writedate, \r\n" + 
+		   		"        id\r\n" + 
+		   		"    FROM board_tree\r\n" + 
+		   		") AS numbered_board\r\n" + 
+		   		"WHERE recNum BETWEEN (? - 1) * 100 + (? - 1) * 10 + 1  \r\n" + 
+		   		"                  AND (? - 1) * 100 + ? * 10";                
 		   System.out.println(query);
 		   pstmt= conn.prepareStatement(query);
 		   pstmt.setInt(1, section);
@@ -90,9 +112,49 @@ public class BoardDAO {
 		List articlesList = new ArrayList();
 		try {
 			conn = dataFactory.getConnection();
-			String query = "SELECT LEVEL,articleNO,parentNO,title,content,id,writeDate" + " from t_board"
-					+ " START WITH  parentNO=0" + " CONNECT BY PRIOR articleNO=parentNO"
-					+ " ORDER SIBLINGS BY articleNO DESC";
+			String query = "WITH RECURSIVE board_tree AS (\r\n" + 
+					"\r\n" + 
+					"    SELECT \r\n" + 
+					"        1 AS level, \r\n" + 
+					"        articleNO, \r\n" + 
+					"        parentNO, \r\n" + 
+					"        title, \r\n" + 
+					"        content, \r\n" + 
+					"        imageFileName, \r\n" + 
+					"        writedate, \r\n" + 
+					"        id,\r\n" + 
+					"        CAST(articleNO AS CHAR(100)) AS path \r\n" + 
+					"    FROM t_board\r\n" + 
+					"    WHERE parentNO = 0\r\n" + 
+					"    \r\n" + 
+					"    UNION ALL\r\n" + 
+					"    \r\n" + 
+					"\r\n" + 
+					"    SELECT \r\n" + 
+					"        bt.level + 1, \r\n" + 
+					"        b.articleNO, \r\n" + 
+					"        b.parentNO, \r\n" + 
+					"        b.title, \r\n" + 
+					"        b.content, \r\n" + 
+					"        b.imageFileName, \r\n" + 
+					"        b.writedate, \r\n" + 
+					"        b.id,\r\n" + 
+					"        CONCAT(bt.path, '-', b.articleNO) AS path  \r\n" + 
+					"    FROM t_board b\r\n" + 
+					"    inner JOIN board_tree bt ON b.parentNO = bt.articleNO\r\n" + 
+					")\r\n" + 
+					"SELECT \r\n" + 
+					"    level, \r\n" + 
+					"    articleNO, \r\n" + 
+					"    parentNO, \r\n" + 
+					"    CONCAT(LPAD(' ', 4 * (level - 1), ' '), title) AS title,  \r\n" + 
+					"    content, \r\n" + 
+					"    imageFileName, \r\n" + 
+					"    writedate, \r\n" + 
+					"    id,\r\n" + 
+					"    path  \r\n" + 
+					"FROM board_tree\r\n" + 
+					"ORDER BY path;";
 			System.out.println(query);
 			pstmt = conn.prepareStatement(query);
 			ResultSet rs = pstmt.executeQuery();
@@ -175,7 +237,7 @@ public class BoardDAO {
 		ArticleVO article = new ArticleVO();
 		try {
 			conn = dataFactory.getConnection();
-			String query = "select articleNO,parentNO,title,content, NVL(imageFileName, 'null') as imageFileName, id, writeDate" + " from t_board"
+			String query = "select articleNO,parentNO,title,content, IFNULL(imageFileName, 'null') as imageFileName, id, writeDate" + " from t_board"
 					+ " where articleNO=?";
 			System.out.println(query);
 			pstmt = conn.prepareStatement(query);
@@ -246,9 +308,22 @@ public class BoardDAO {
 			conn = dataFactory.getConnection();
 			String query = "DELETE FROM t_board ";
 			query += " WHERE articleNO in (";
-			query += "  SELECT articleNO FROM  t_board ";
-			query += " START WITH articleNO = ?";
-			query += " CONNECT BY PRIOR  articleNO = parentNO )";
+			query += " WITH RECURSIVE board_tree AS (\r\n" + 
+					"    SELECT \r\n" + 
+					"        articleNO, \r\n" + 
+					"        parentNO\r\n" + 
+					"    FROM t_board\r\n" + 
+					"    WHERE articleNO = ?\r\n" + 
+					"\r\n" + 
+					"    UNION ALL\r\n" + 
+					"\r\n" + 
+					"    SELECT \r\n" + 
+					"        b.articleNO, \r\n" + 
+					"        b.parentNO\r\n" + 
+					"    FROM t_board b\r\n" + 
+					"    JOIN board_tree bt ON b.parentNO = bt.articleNO\r\n" + 
+					")\r\n" + 
+					"SELECT articleNO FROM board_tree )";
 			System.out.println(query);
 			pstmt = conn.prepareStatement(query);
 			pstmt.setInt(1, articleNO);
@@ -264,9 +339,19 @@ public class BoardDAO {
 		List<Integer> articleNOList = new ArrayList<Integer>();
 		try {
 			conn = dataFactory.getConnection();
-			String query = "SELECT articleNO FROM  t_board  ";
-			query += " START WITH articleNO = ?";
-			query += " CONNECT BY PRIOR  articleNO = parentNO";
+			String query = "WITH RECURSIVE board_tree AS (\r\n" + 
+					"    SELECT \r\n" + 
+					"        articleNO \r\n" +
+					"    FROM t_board\r\n" + 
+					"    WHERE articleNO = ?\r\n" + 
+					"\r\n" + 
+					"    UNION ALL\r\n" + 
+					"\r\n" + 
+					"    SELECT \r\n" + 
+					"        b.articleNO \r\n" + 
+					"    FROM t_board b\r\n" + 
+					"    JOIN board_tree bt ON b.parentNO = bt.articleNO\r\n" + 
+					")SELECT * FROM board_tree";
 			System.out.println(query);
 			pstmt = conn.prepareStatement(query);
 			pstmt.setInt(1, articleNO);
